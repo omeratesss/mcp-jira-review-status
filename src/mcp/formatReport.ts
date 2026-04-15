@@ -6,13 +6,16 @@ export function formatReport(issueKey: string, result: ResolveResult): string {
     const scopeDesc = result.searchedScope.length > 0
       ? result.searchedScope.join(", ")
       : "(empty — no org detected)";
+    const hasRepoScope = result.searchedScope.some((s) => s.includes("/") && !s.includes(":"));
     return [
       `${issueKey}: no pull request found.`,
       `Searched in: ${scopeDesc}`,
+      hasRepoScope
+        ? "Looked in both PR title/body and open-PR branch names."
+        : "Looked in PR title/body only. Add an `owner/repo` to your scope to also scan open-PR branch names.",
       "If the PR exists, verify:",
-      "  • the ticket key appears in the PR title or body (branch-only matches are not searched),",
       "  • your GitHub token has `repo` + `read:org` scopes,",
-      "  • and — for SSO orgs — the token is authorized for that org at github.com/settings/tokens.",
+      "  • and — for SSO orgs — the token is authorized at github.com/settings/tokens.",
     ].join("\n");
   }
 

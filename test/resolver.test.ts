@@ -107,6 +107,9 @@ describe("resolveTaskPullRequests", () => {
         expect(q).toContain("repo:other/tools");
         return HttpResponse.json({ items: [] });
       }),
+      http.get("https://api.github.com/repos/other/tools/pulls", () =>
+        HttpResponse.json([]),
+      ),
     );
 
     const result = await resolveTaskPullRequests({
@@ -115,5 +118,38 @@ describe("resolveTaskPullRequests", () => {
       scopeOverride: ["acme", "other/tools"],
     });
     expect(result.pullRequests).toEqual([]);
+    expect(result.matchedVia).toBe("none");
+  });
+
+  it("falls back to branch-name search when title/body finds nothing", async () => {
+    server.use(
+      http.get("https://api.github.com/search/issues", () =>
+        HttpResponse.json({ items: [] }),
+      ),
+      http.get("https://api.github.com/repos/acme/app/pulls", () =>
+        HttpResponse.json([
+          {
+            number: 77,
+            html_url: "https://github.com/acme/app/pull/77",
+            head: { ref: "feature/PROJ-5-add-toggle" },
+          },
+          {
+            number: 78,
+            html_url: "https://github.com/acme/app/pull/78",
+            head: { ref: "chore/bump-deps" },
+          },
+        ]),
+      ),
+      ...stubGithubPr("acme", "app", 77),
+    );
+
+    const result = await resolveTaskPullRequests({
+      github,
+      issueKey: "PROJ-5",
+      scopeOverride: ["acme/app"],
+    });
+    expect(result.matchedVia).toBe("branch");
+    expect(result.pullRequests).toHaveLength(1);
+    expect(result.pullRequests[0]!.number).toBe(77);
   });
 });

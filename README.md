@@ -85,8 +85,18 @@ A structured JSON copy is returned alongside the text for downstream tools.
 
 ### Customizing the search scope
 
-By default the server searches every org the token has access to. Override
-via env (comma-separated; `owner/repo` for repos, plain names for orgs):
+By default the server searches every org the token has access to. The setup
+wizard lets you add or override the scope interactively.
+
+Teams often put the ticket key in the branch name instead of the PR title
+— e.g. `feature/PROJ-123-add-toggle`. When your scope includes an
+explicit `owner/repo` (not just an org name), the server falls back to
+listing that repo's open PRs and matching the ticket key against branch
+names after the title/body search comes up empty. Org-only scopes can't
+do this (enumerating every repo is too expensive), so add the repos you
+care about.
+
+Override via env (comma-separated; `owner/repo` for repos, plain names for orgs):
 
 ```
 MCP_JIRA_REVIEW_SEARCH_SCOPE=your-org,other-org/tools

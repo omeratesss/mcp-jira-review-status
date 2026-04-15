@@ -12,7 +12,7 @@ export async function runServer(): Promise<void> {
 
   const server = new McpServer({
     name: "mcp-jira-review-status",
-    version: "0.5.1",
+    version: "0.6.0",
   });
 
   server.tool(
@@ -39,6 +39,7 @@ export async function runServer(): Promise<void> {
               {
                 issueKey,
                 searchedScope: result.searchedScope,
+                matchedVia: result.matchedVia,
                 pullRequests: result.pullRequests.map(trimmedPullRequest),
               },
               null,

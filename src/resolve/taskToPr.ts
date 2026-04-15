@@ -1,9 +1,10 @@
-import { GitHubClient, parsePullRequestUrl } from "../providers/github.js";
+import { GitHubClient, parsePullRequestUrl, parseRepoSpec } from "../providers/github.js";
 import type { PullRequestSummary } from "../providers/github.js";
 
 export interface ResolveResult {
   pullRequests: PullRequestSummary[];
   searchedScope: string[];
+  matchedVia: "title-body" | "branch" | "none";
 }
 
 export async function resolveTaskPullRequests(params: {
@@ -17,7 +18,18 @@ export async function resolveTaskPullRequests(params: {
     ? scopeOverride
     : await detectDefaultScope(github);
 
+  let matchedVia: ResolveResult["matchedVia"] = "none";
   const urls = new Set<string>(await github.searchPullRequestUrlsByKey(scope, issueKey));
+  if (urls.size > 0) matchedVia = "title-body";
+
+  if (urls.size === 0) {
+    const repos = scope
+      .map(parseRepoSpec)
+      .filter((r): r is { owner: string; repo: string } => r !== null);
+    const branchHits = await github.findOpenPullRequestsByBranchContains(repos, issueKey);
+    for (const url of branchHits) urls.add(url);
+    if (urls.size > 0) matchedVia = "branch";
+  }
 
   const summaries: PullRequestSummary[] = [];
   for (const url of urls) {
@@ -31,11 +43,11 @@ export async function resolveTaskPullRequests(params: {
       );
       summaries.push(summary);
     } catch {
-      // Skip PRs we can't access — don't abort whole result.
+      // Skip PRs we can't access.
     }
   }
 
-  return { pullRequests: summaries, searchedScope: scope };
+  return { pullRequests: summaries, searchedScope: scope, matchedVia };
 }
 
 async function detectDefaultScope(github: GitHubClient): Promise<string[]> {

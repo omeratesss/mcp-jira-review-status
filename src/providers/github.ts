@@ -187,4 +187,37 @@ export class GitHubClient {
       .filter((i) => i.pull_request)
       .map((i) => i.html_url);
   }
+
+  async findOpenPullRequestsByBranchContains(
+    repos: Array<{ owner: string; repo: string }>,
+    issueKey: string,
+  ): Promise<string[]> {
+    if (repos.length === 0) return [];
+    const needle = issueKey.toLowerCase();
+    const urls: string[] = [];
+    for (const { owner, repo } of repos) {
+      try {
+        const pulls = await this.octokit.paginate(this.octokit.pulls.list, {
+          owner,
+          repo,
+          state: "open",
+          per_page: 100,
+        });
+        for (const pr of pulls) {
+          if (pr.head?.ref?.toLowerCase().includes(needle)) {
+            urls.push(pr.html_url);
+          }
+        }
+      } catch {
+        // Skip repos we can't list (perms, not found).
+      }
+    }
+    return urls;
+  }
+}
+
+export function parseRepoSpec(spec: string): { owner: string; repo: string } | null {
+  const parts = spec.split("/").map((p) => p.trim()).filter(Boolean);
+  if (parts.length !== 2) return null;
+  return { owner: parts[0]!, repo: parts[1]! };
 }
