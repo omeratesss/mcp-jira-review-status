@@ -3,7 +3,17 @@ import type { ResolveResult } from "../resolve/taskToPr.js";
 
 export function formatReport(issueKey: string, result: ResolveResult): string {
   if (result.pullRequests.length === 0) {
-    return `${issueKey}: no pull request found.`;
+    const scopeDesc = result.searchedScope.length > 0
+      ? result.searchedScope.join(", ")
+      : "(empty — no org detected)";
+    return [
+      `${issueKey}: no pull request found.`,
+      `Searched in: ${scopeDesc}`,
+      "If the PR exists, verify:",
+      "  • the ticket key appears in the PR title or body (branch-only matches are not searched),",
+      "  • your GitHub token has `repo` + `read:org` scopes,",
+      "  • and — for SSO orgs — the token is authorized for that org at github.com/settings/tokens.",
+    ].join("\n");
   }
 
   const lines: string[] = [];
