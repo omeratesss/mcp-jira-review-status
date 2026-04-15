@@ -7,14 +7,20 @@ async function main() {
     await runSetup();
     return;
   }
+  if (arg === "update") {
+    const { runUpdate } = await import("./cli/update.js");
+    await runUpdate();
+    return;
+  }
   if (arg === "--help" || arg === "-h" || arg === "help") {
     process.stdout.write(
       [
-        "mcp-jira-review-status — report PR review status for a Jira issue",
+        "mcp-jira-review-status — report PR review status for a ticket key",
         "",
         "Usage:",
         "  mcp-jira-review-status          Start the MCP server (stdio). Used by your MCP client.",
-        "  mcp-jira-review-status setup    Interactive setup: prompts for tokens + edits client config.",
+        "  mcp-jira-review-status setup    Interactive setup: prompts for your GitHub token + picks a client.",
+        "  mcp-jira-review-status update   Upgrade every installation to the latest version on npm.",
         "  mcp-jira-review-status --help   Show this help.",
         "",
         "Docs: https://github.com/omeratesss/mcp-jira-review-status",

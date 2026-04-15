@@ -30,9 +30,22 @@ Two questions only:
 The wizard verifies your token, auto-detects which GitHub orgs to search in,
 and installs the server. No manual JSON editing.
 
-Restart your client (except Claude Code — it's hot), then ask:
+Restart your client (Claude Code picks it up on `/mcp` reload), then ask:
 
 > "Use jira-review-status to check PROJ-123"
+
+---
+
+## Updating
+
+```sh
+npx -y mcp-jira-review-status@latest update
+```
+
+This walks through every client it finds installed (Claude Desktop, Claude
+Code, Cursor), replaces the pinned version in each config with whatever is
+latest on npm, and keeps your token untouched. Restart clients after
+running.
 
 ---
 

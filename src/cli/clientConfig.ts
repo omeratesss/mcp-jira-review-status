@@ -1,157 +1,131 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
-import { spawnSync } from "node:child_process";
 
 export type ClientId = "claude-desktop" | "claude-code" | "cursor";
 
 export interface ClientTarget {
   id: ClientId;
   name: string;
-  hint: string;
+  path: string;
   exists: boolean;
 }
 
 export function candidateClientTargets(): ClientTarget[] {
-  const cc = resolveClaudeCodeCli();
-  return [
-    {
-      id: "claude-desktop",
-      name: "Claude Desktop",
-      hint: claudeDesktopConfigPath(),
-      exists: existsSync(claudeDesktopConfigPath()),
-    },
-    {
-      id: "claude-code",
-      name: "Claude Code (terminal)",
-      hint: cc ? `via \`${cc}\` CLI` : "via `claude` CLI (not on PATH)",
-      exists: Boolean(cc),
-    },
-    {
-      id: "cursor",
-      name: "Cursor",
-      hint: cursorConfigPath(),
-      exists: existsSync(cursorConfigPath()),
-    },
-  ];
+  return (["claude-desktop", "claude-code", "cursor"] as const).map((id) => {
+    const path = clientConfigPath(id);
+    return {
+      id,
+      name: clientName(id),
+      path,
+      exists: existsSync(path),
+    };
+  });
 }
 
-export function claudeDesktopConfigPath(): string {
+export function clientName(id: ClientId): string {
+  switch (id) {
+    case "claude-desktop":
+      return "Claude Desktop";
+    case "claude-code":
+      return "Claude Code (terminal)";
+    case "cursor":
+      return "Cursor";
+  }
+}
+
+export function clientConfigPath(id: ClientId): string {
   const home = homedir();
   const plat = platform();
-  if (plat === "darwin") {
-    return join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
+  if (id === "claude-desktop") {
+    if (plat === "darwin")
+      return join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
+    if (plat === "win32")
+      return join(
+        process.env.APPDATA ?? join(home, "AppData", "Roaming"),
+        "Claude",
+        "claude_desktop_config.json",
+      );
+    return join(home, ".config", "Claude", "claude_desktop_config.json");
   }
-  if (plat === "win32") {
-    return join(
-      process.env.APPDATA ?? join(home, "AppData", "Roaming"),
-      "Claude",
-      "claude_desktop_config.json",
-    );
+  if (id === "claude-code") {
+    return join(home, ".claude.json");
   }
-  return join(home, ".config", "Claude", "claude_desktop_config.json");
+  return join(home, ".cursor", "mcp.json");
 }
 
-export function cursorConfigPath(): string {
-  return join(homedir(), ".cursor", "mcp.json");
+export interface McpServerEntry {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  type?: string;
 }
 
-export function resolveClaudeCodeCli(): string | null {
-  const candidates = ["claude"];
-  for (const cmd of candidates) {
-    const res = spawnSync("command", ["-v", cmd], { encoding: "utf8", shell: true });
-    if (res.status === 0 && res.stdout.trim()) return cmd;
-  }
-  return null;
-}
-
-export interface MergeParams {
+export interface WriteParams {
+  path: string;
   serverName: string;
-  env: Record<string, string>;
+  entry: McpServerEntry;
 }
 
-export interface MergeResult {
+export interface WriteResult {
   wrote: string;
   backupPath: string | null;
   replacedExisting: boolean;
 }
 
-export function installToJsonConfig(
-  path: string,
-  { serverName, env }: MergeParams,
-): MergeResult {
-  let existing: Record<string, unknown> = {};
-  let replacedExisting = false;
-  let backupPath: string | null = null;
+function loadConfigJson(path: string): { data: Record<string, unknown>; existed: boolean } {
+  if (!existsSync(path)) return { data: {}, existed: false };
+  const raw = readFileSync(path, "utf8");
+  if (!raw.trim()) return { data: {}, existed: true };
+  try {
+    return { data: JSON.parse(raw) as Record<string, unknown>, existed: true };
+  } catch {
+    throw new Error(`Existing config at ${path} is not valid JSON — refusing to overwrite. Fix or remove it first.`);
+  }
+}
 
-  if (existsSync(path)) {
-    const raw = readFileSync(path, "utf8");
-    try {
-      existing = raw.trim() ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    } catch {
-      throw new Error(`Existing config at ${path} is not valid JSON — refusing to overwrite. Fix or remove it first.`);
-    }
+function saveConfigJson(path: string, data: Record<string, unknown>) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(data, null, 2) + "\n", { mode: 0o600 });
+}
+
+export function writeMcpServerEntry({ path, serverName, entry }: WriteParams): WriteResult {
+  const { data, existed } = loadConfigJson(path);
+  let backupPath: string | null = null;
+  if (existed) {
     backupPath = `${path}.backup-${Date.now()}`;
     copyFileSync(path, backupPath);
-  } else {
-    mkdirSync(dirname(path), { recursive: true });
   }
 
   const mcpServers =
-    (existing.mcpServers as Record<string, unknown> | undefined) ?? {};
-  replacedExisting = Object.prototype.hasOwnProperty.call(mcpServers, serverName);
+    (data.mcpServers as Record<string, McpServerEntry> | undefined) ?? {};
+  const replacedExisting = Object.prototype.hasOwnProperty.call(mcpServers, serverName);
+  mcpServers[serverName] = entry;
+  data.mcpServers = mcpServers;
 
-  mcpServers[serverName] = {
-    command: "npx",
-    args: ["-y", "mcp-jira-review-status"],
-    env,
-  };
-  existing.mcpServers = mcpServers;
-
-  writeFileSync(path, JSON.stringify(existing, null, 2) + "\n", { mode: 0o600 });
+  saveConfigJson(path, data);
   return { wrote: path, backupPath, replacedExisting };
 }
 
-export function installToClaudeCode({ serverName, env }: MergeParams): {
-  wrote: string;
-  command: string;
-} {
-  const cli = resolveClaudeCodeCli();
-  if (!cli) {
-    throw new Error(
-      "`claude` CLI not found on PATH. Install Claude Code first: https://docs.claude.com/claude-code",
-    );
+export interface InstalledLookup {
+  clientId: ClientId;
+  path: string;
+  entry: McpServerEntry;
+}
+
+export function findInstallations(serverName: string): InstalledLookup[] {
+  const found: InstalledLookup[] = [];
+  for (const target of candidateClientTargets()) {
+    if (!target.exists) continue;
+    try {
+      const { data } = loadConfigJson(target.path);
+      const servers = data.mcpServers as Record<string, McpServerEntry> | undefined;
+      if (servers && servers[serverName]) {
+        found.push({ clientId: target.id, path: target.path, entry: servers[serverName] });
+      }
+    } catch {
+      // skip unreadable/invalid configs
+    }
   }
-
-  const envArgs: string[] = [];
-  for (const [key, value] of Object.entries(env)) {
-    envArgs.push("-e", `${key}=${value}`);
-  }
-
-  const args = [
-    "mcp",
-    "add",
-    serverName,
-    "--scope",
-    "user",
-    ...envArgs,
-    "--",
-    "npx",
-    "-y",
-    "mcp-jira-review-status",
-  ];
-
-  const removeFirst = spawnSync(cli, ["mcp", "remove", serverName, "--scope", "user"], {
-    encoding: "utf8",
-  });
-  void removeFirst;
-
-  const res = spawnSync(cli, args, { encoding: "utf8" });
-  if (res.status !== 0) {
-    throw new Error(
-      `\`${cli} ${args.join(" ")}\` failed (exit ${res.status}):\n${res.stderr || res.stdout}`,
-    );
-  }
-
-  return { wrote: "Claude Code user scope", command: `${cli} ${args.join(" ")}` };
+  return found;
 }
