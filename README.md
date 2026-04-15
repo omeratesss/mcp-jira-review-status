@@ -40,20 +40,19 @@ Restart your client (except Claude Code — it's hot), then ask:
 
 **Tool:** `get_review_status({ issueKey: "PROJ-123" })`
 
-**Output:**
+**Output (deliberately minimal — only what a PM needs to nudge the right person):**
 
 ```
-Ticket: PROJ-123
-Searched in: your-org
+PROJ-123: 1 PR
 
-Found 1 PR(s):
-
-  #482 PROJ-123: Wire new auth middleware
-  https://github.com/your-org/app/pull/482
-  OPEN   your-org/app   feature/auth → develop   author: ayse
-  Approved:          mehmet
-  Pending review:    can, zeynep
+#482 OPEN https://github.com/your-org/app/pull/482
+Approved (1/3): mehmet
+Not approved (2): can, zeynep
 ```
+
+No CI status, merge conflicts, labels, branches, or author info — the tool
+answers one question ("who still needs to approve?") and stays out of the
+way. The server prompts the LLM to not embellish this either.
 
 A structured JSON copy is returned alongside the text for downstream tools.
 

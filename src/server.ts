@@ -4,7 +4,7 @@ import { z } from "zod";
 import { loadConfig } from "./config.js";
 import { GitHubClient } from "./providers/github.js";
 import { resolveTaskPullRequests } from "./resolve/taskToPr.js";
-import { formatReport } from "./mcp/formatReport.js";
+import { formatReport, trimmedPullRequest } from "./mcp/formatReport.js";
 
 export async function runServer(): Promise<void> {
   const config = loadConfig();
@@ -12,12 +12,17 @@ export async function runServer(): Promise<void> {
 
   const server = new McpServer({
     name: "mcp-jira-review-status",
-    version: "0.3.0",
+    version: "0.4.0",
   });
 
   server.tool(
     "get_review_status",
-    "Report PR review status for a Jira/ticket key: which reviewers must still approve, who already did, and whether the PR is merged. Searches GitHub for PRs whose title or body contains the key.",
+    [
+      "Report which reviewers have approved a PR and which have not, given a ticket key.",
+      "Return exactly the text provided — do not add PR state details, CI check results, merge conflicts,",
+      "labels, branch names, authors, or any other metadata. The project manager only needs to know",
+      "how many reviewers are on the PR, who approved, and who did not.",
+    ].join(" "),
     { issueKey: z.string().describe("Ticket key to search for, e.g. PROJ-123") },
     async ({ issueKey }) => {
       const result = await resolveTaskPullRequests({
@@ -33,8 +38,7 @@ export async function runServer(): Promise<void> {
             text: JSON.stringify(
               {
                 issueKey,
-                pullRequests: result.pullRequests,
-                searchedScope: result.searchedScope,
+                pullRequests: result.pullRequests.map(trimmedPullRequest),
               },
               null,
               2,

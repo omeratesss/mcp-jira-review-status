@@ -1,6 +1,6 @@
 {
   "name": "mcp-jira-review-status",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "MCP server that reports PR review status for a Jira issue — who must still approve, who already did, and whether the PR is merged.",
   "keywords": [
     "mcp",

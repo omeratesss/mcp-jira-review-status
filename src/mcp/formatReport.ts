@@ -2,47 +2,49 @@ import type { PullRequestSummary } from "../providers/github.js";
 import type { ResolveResult } from "../resolve/taskToPr.js";
 
 export function formatReport(issueKey: string, result: ResolveResult): string {
-  const lines: string[] = [];
-  lines.push(`Ticket: ${issueKey}`);
-  lines.push(`Searched in: ${result.searchedScope.join(", ") || "(empty)"}`);
-  lines.push("");
-
   if (result.pullRequests.length === 0) {
-    lines.push("No matching pull requests found.");
-    lines.push(
-      "Make sure the ticket key appears in the PR title or body, and that the PR lives in an org/repo your token can access.",
-    );
-    return lines.join("\n");
+    return `${issueKey}: no pull request found.`;
   }
 
-  lines.push(`Found ${result.pullRequests.length} PR(s):`);
+  const lines: string[] = [];
+  lines.push(`${issueKey}: ${result.pullRequests.length} PR${result.pullRequests.length === 1 ? "" : "s"}`);
+
   for (const pr of result.pullRequests) {
     lines.push("");
     const stateLabel =
-      pr.state === "merged"
-        ? "MERGED"
-        : pr.state === "closed"
-          ? "CLOSED"
-          : pr.draft
-            ? "OPEN (draft)"
-            : "OPEN";
-    lines.push(`  #${pr.number} ${pr.title}`);
-    lines.push(`  ${pr.url}`);
-    lines.push(
-      `  ${stateLabel}   ${pr.owner}/${pr.repo}   ${pr.headBranch} → ${pr.baseBranch}   author: ${pr.author ?? "—"}`,
-    );
+      pr.state === "merged" ? "MERGED" : pr.state === "closed" ? "CLOSED" : "OPEN";
+    lines.push(`#${pr.number} ${stateLabel} ${pr.url}`);
 
-    if (pr.reviewers.length === 0) {
-      lines.push(`  Reviewers: none assigned`);
+    const total = pr.reviewers.length;
+    const approvedCount = pr.approved.length;
+
+    if (total === 0) {
+      lines.push("No reviewers assigned.");
       continue;
     }
-    if (pr.approved.length) lines.push(`  Approved:          ${pr.approved.join(", ")}`);
-    if (pr.changesRequested.length)
-      lines.push(`  Changes requested: ${pr.changesRequested.join(", ")}`);
-    if (pr.pending.length) lines.push(`  Pending review:    ${pr.pending.join(", ")}`);
-    if (pr.commented.length)
-      lines.push(`  Only commented:    ${pr.commented.join(", ")}`);
+
+    lines.push(`Approved (${approvedCount}/${total}): ${pr.approved.join(", ") || "—"}`);
+
+    const notApproved = pr.reviewers
+      .filter((r) => r.status !== "approved")
+      .map((r) => r.login);
+    if (notApproved.length) {
+      lines.push(`Not approved (${notApproved.length}): ${notApproved.join(", ")}`);
+    }
   }
 
   return lines.join("\n");
+}
+
+export function trimmedPullRequest(pr: PullRequestSummary) {
+  return {
+    url: pr.url,
+    number: pr.number,
+    state: pr.state,
+    reviewerCount: pr.reviewers.length,
+    approved: pr.approved,
+    notApproved: pr.reviewers
+      .filter((r) => r.status !== "approved")
+      .map((r) => r.login),
+  };
 }
