@@ -1,7 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { setupServer } from "msw/node";
 import { http, HttpResponse } from "msw";
-import { JiraClient } from "../src/providers/jira.js";
 import { GitHubClient } from "../src/providers/github.js";
 import { resolveTaskPullRequests } from "../src/resolve/taskToPr.js";
 
@@ -34,95 +33,87 @@ function stubGithubPr(owner: string, repo: string, number: number) {
 }
 
 describe("resolveTaskPullRequests", () => {
-  const jira = new JiraClient({
-    site: "example.atlassian.net",
-    email: "x@y.z",
-    apiToken: "t",
-  });
   const github = GitHubClient.fromToken("gh-token");
 
-  it("uses Jira dev-status PRs when present", async () => {
+  it("searches in explicit scope override when provided", async () => {
     server.use(
-      http.get(
-        "https://example.atlassian.net/rest/dev-status/1.0/issue/detail",
-        () =>
-          HttpResponse.json({
-            detail: [
-              {
-                pullRequests: [
-                  {
-                    url: "https://github.com/acme/repo/pull/7",
-                    status: "OPEN",
-                  },
-                ],
-              },
-            ],
-          }),
-      ),
+      http.get("https://api.github.com/search/issues", ({ request }) => {
+        const q = new URL(request.url).searchParams.get("q") ?? "";
+        expect(q).toContain("org:acme");
+        expect(q).toContain("is:pr PROJ-1");
+        return HttpResponse.json({
+          items: [
+            {
+              html_url: "https://github.com/acme/repo/pull/7",
+              pull_request: { url: "x" },
+            },
+          ],
+        });
+      }),
       ...stubGithubPr("acme", "repo", 7),
     );
 
     const result = await resolveTaskPullRequests({
-      jira,
       github,
       issueKey: "PROJ-1",
-      issueId: "1001",
-      repos: ["acme/repo"],
+      scopeOverride: ["acme"],
     });
-    expect(result.source).toBe("jira-dev-status");
+    expect(result.searchedScope).toEqual(["acme"]);
     expect(result.pullRequests).toHaveLength(1);
     expect(result.pullRequests[0]!.number).toBe(7);
   });
 
-  it("falls back to GitHub search when dev-status is empty", async () => {
+  it("auto-detects orgs when no scope override", async () => {
     server.use(
-      http.get(
-        "https://example.atlassian.net/rest/dev-status/1.0/issue/detail",
-        () => HttpResponse.json({ detail: [{ pullRequests: [] }] }),
+      http.get("https://api.github.com/user/orgs", () =>
+        HttpResponse.json([{ login: "alpha" }, { login: "beta" }]),
       ),
-      http.get("https://api.github.com/search/issues", () =>
-        HttpResponse.json({
-          items: [
-            {
-              html_url: "https://github.com/acme/repo/pull/9",
-              pull_request: { url: "x" },
-            },
-          ],
-        }),
-      ),
-      ...stubGithubPr("acme", "repo", 9),
+      http.get("https://api.github.com/search/issues", ({ request }) => {
+        const q = new URL(request.url).searchParams.get("q") ?? "";
+        expect(q).toContain("org:alpha");
+        expect(q).toContain("org:beta");
+        return HttpResponse.json({ items: [] });
+      }),
     );
 
-    const result = await resolveTaskPullRequests({
-      jira,
-      github,
-      issueKey: "PROJ-2",
-      issueId: "1002",
-      repos: ["acme/repo"],
-    });
-    expect(result.source).toBe("github-search");
-    expect(result.pullRequests).toHaveLength(1);
-    expect(result.pullRequests[0]!.number).toBe(9);
+    const result = await resolveTaskPullRequests({ github, issueKey: "PROJ-2" });
+    expect(result.searchedScope).toEqual(["alpha", "beta"]);
+    expect(result.pullRequests).toEqual([]);
   });
 
-  it("returns empty result with source=none when nothing matches", async () => {
+  it("falls back to user scope when no orgs", async () => {
     server.use(
-      http.get(
-        "https://example.atlassian.net/rest/dev-status/1.0/issue/detail",
-        () => HttpResponse.json({ detail: [] }),
+      http.get("https://api.github.com/user/orgs", () => HttpResponse.json([])),
+      http.get("https://api.github.com/user", () =>
+        HttpResponse.json({ login: "solo-dev" }),
       ),
-      http.get("https://api.github.com/search/issues", () =>
-        HttpResponse.json({ items: [] }),
-      ),
+      http.get("https://api.github.com/search/issues", ({ request }) => {
+        const q = new URL(request.url).searchParams.get("q") ?? "";
+        expect(q).toContain("user:solo-dev");
+        expect(q).not.toContain("org:user:");
+        return HttpResponse.json({ items: [] });
+      }),
     );
+
+    const result = await resolveTaskPullRequests({ github, issueKey: "PROJ-3" });
+    expect(result.searchedScope).toEqual(["user:solo-dev"]);
+  });
+
+  it("supports mixed org + repo scope", async () => {
+    server.use(
+      http.get("https://api.github.com/search/issues", ({ request }) => {
+        const q = new URL(request.url).searchParams.get("q") ?? "";
+        expect(q).toContain("org:acme");
+        expect(q).toContain("repo:other/tools");
+        return HttpResponse.json({ items: [] });
+      }),
+    );
+
     const result = await resolveTaskPullRequests({
-      jira,
       github,
-      issueKey: "PROJ-3",
-      issueId: "1003",
-      repos: ["acme/repo"],
+      issueKey: "PROJ-4",
+      scopeOverride: ["acme", "other/tools"],
     });
-    expect(result.source).toBe("none");
-    expect(result.pullRequests).toHaveLength(0);
+    expect(result.pullRequests).toEqual([]);
   });
 });

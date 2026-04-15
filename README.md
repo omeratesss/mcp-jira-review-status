@@ -4,7 +4,8 @@ MCP server that answers one question project managers ask every day:
 
 > "Task `PROJ-123` is in review — **who still needs to approve it?**"
 
-Give it a Jira issue key. It finds the linked pull request(s) and reports:
+Give it a ticket key. It searches GitHub for PRs whose title or body
+contains the key and reports:
 
 - Is the PR open, merged, or closed?
 - Who are the reviewers?
@@ -14,29 +15,22 @@ So managers can nudge the right person instead of broadcasting to the team.
 
 ---
 
-## Quick start (one command)
+## Quick start
 
 ```sh
 npx -y mcp-jira-review-status setup
 ```
 
-You'll be asked for:
+Two questions only:
 
-1. **Jira site** — e.g. `your-org.atlassian.net`
-2. **Jira email** — the email you sign in to Jira with
-3. **Jira API token** — create one at
-   <https://id.atlassian.com/manage-profile/security/api-tokens>
-4. **GitHub token** — create one at
-   <https://github.com/settings/tokens/new> with scopes **`repo`** and **`read:org`**
-5. **Fallback repos** (optional) — comma-separated `owner/repo` list used
-   only when Jira's GitHub integration hasn't linked the PR to the issue
+1. **GitHub token** — create one at <https://github.com/settings/tokens/new>
+   with scopes **`repo`** and **`read:org`**.
+2. **Which MCP client?** — Claude Desktop, Claude Code (terminal), or Cursor.
 
-The wizard **verifies both tokens** before writing anything, then installs
-the server into your MCP client's config file (Claude Desktop or Cursor).
-It **backs up** your existing config and **preserves** any other MCP
-servers you already have.
+The wizard verifies your token, auto-detects which GitHub orgs to search in,
+and installs the server. No manual JSON editing.
 
-Restart your client, then ask:
+Restart your client (except Claude Code — it's hot), then ask:
 
 > "Use jira-review-status to check PROJ-123"
 
@@ -49,13 +43,12 @@ Restart your client, then ask:
 **Output:**
 
 ```
-PROJ-123 — Wire new auth middleware
-Status: In Review   Assignee: Ayşe Yılmaz
-https://your-org.atlassian.net/browse/PROJ-123
+Ticket: PROJ-123
+Searched in: your-org
 
-Found 1 PR(s) via jira-dev-status:
+Found 1 PR(s):
 
-  #482 Wire new auth middleware
+  #482 PROJ-123: Wire new auth middleware
   https://github.com/your-org/app/pull/482
   OPEN   your-org/app   feature/auth → develop   author: ayse
   Approved:          mehmet
@@ -66,25 +59,44 @@ A structured JSON copy is returned alongside the text for downstream tools.
 
 ---
 
-## How task → PR resolution works
+## How it works
 
-1. **Primary:** Jira Development panel
-   (`/rest/dev-status/1.0/issue/detail`). If Jira is linked to GitHub,
-   this returns the PR URLs directly — no branch/title convention needed.
-2. **Fallback:** GitHub search
-   (`is:pr {ISSUE-KEY} in:title,body`) across your configured repos.
+1. When the server starts, it reads your `GITHUB_TOKEN`.
+2. When you call `get_review_status(issueKey)`, it runs a GitHub search:
+   `org:<your-orgs> is:pr <issueKey> in:title,body`.
+3. For each matching PR it fetches the PR state, `requested_reviewers`, and
+   the reviews timeline, then aggregates per-user latest-wins:
+   - The most recent non-dismissed review of type `APPROVED` or
+     `CHANGES_REQUESTED` wins.
+   - A user who only commented is reported separately.
+   - Users in `requested_reviewers` with no review yet are `pending`.
 
-Review status per user follows GitHub's latest-wins semantics: the most
-recent non-dismissed review of type `APPROVED` or `CHANGES_REQUESTED`
-wins; a user who only commented is reported separately; users in
-`requested_reviewers` without any review are `pending`.
+### Customizing the search scope
+
+By default the server searches every org the token has access to. Override
+via env (comma-separated; `owner/repo` for repos, plain names for orgs):
+
+```
+MCP_JIRA_REVIEW_SEARCH_SCOPE=your-org,other-org/tools
+```
+
+Or in `~/.config/mcp-jira-review/config.json`:
+
+```json
+{ "searchScope": ["your-org", "other-org/tools"] }
+```
+
+Or per-project `./.mcp-jira-review.json`:
+
+```json
+{ "searchScope": ["your-org/android", "your-org/ios"] }
+```
 
 ---
 
-## Manual installation (advanced)
+## Manual install (advanced)
 
-If you prefer to edit the MCP client config yourself, add this block to
-your `claude_desktop_config.json` (or `~/.cursor/mcp.json`):
+If you skip the wizard, add this to your Claude Desktop or Cursor config:
 
 ```json
 {
@@ -92,40 +104,17 @@ your `claude_desktop_config.json` (or `~/.cursor/mcp.json`):
     "jira-review-status": {
       "command": "npx",
       "args": ["-y", "mcp-jira-review-status"],
-      "env": {
-        "JIRA_SITE": "your-org.atlassian.net",
-        "JIRA_EMAIL": "you@example.com",
-        "JIRA_API_TOKEN": "…",
-        "GITHUB_TOKEN": "ghp_…",
-        "MCP_JIRA_REVIEW_REPOS": "your-org/app,your-org/api"
-      }
+      "env": { "GITHUB_TOKEN": "ghp_…" }
     }
   }
 }
 ```
 
-### Config file alternative
+For Claude Code:
 
-Instead of env in the client config, you can put credentials in
-`~/.config/mcp-jira-review/config.json`:
-
-```json
-{
-  "jiraSite": "your-org.atlassian.net",
-  "jiraEmail": "you@example.com",
-  "jiraApiToken": "…",
-  "githubToken": "ghp_…",
-  "repos": ["your-org/app", "your-org/api"]
-}
+```sh
+claude mcp add jira-review-status --scope user -e GITHUB_TOKEN=ghp_… -- npx -y mcp-jira-review-status
 ```
-
-Per-project repo overrides: `./.mcp-jira-review.json`:
-
-```json
-{ "repos": ["your-org/android", "your-org/ios"] }
-```
-
-Precedence: env → workspace file → user config file.
 
 ---
 

@@ -156,13 +156,29 @@ export class GitHubClient {
     };
   }
 
+  async getCurrentUserLogin(): Promise<string> {
+    const res = await this.octokit.users.getAuthenticated();
+    return res.data.login;
+  }
+
+  async getUserOrgs(): Promise<string[]> {
+    const orgs = await this.octokit.paginate(this.octokit.orgs.listForAuthenticatedUser, {
+      per_page: 100,
+    });
+    return orgs.map((o) => o.login).filter((l): l is string => Boolean(l));
+  }
+
   async searchPullRequestUrlsByKey(
-    repos: string[],
+    scope: string[],
     issueKey: string,
   ): Promise<string[]> {
-    if (repos.length === 0) return [];
-    const repoQualifiers = repos.map((r) => `repo:${r}`).join(" ");
-    const query = `${repoQualifiers} is:pr ${issueKey} in:title,body`;
+    if (scope.length === 0) return [];
+    const qualifiers = scope
+      .map((s) =>
+        s.includes(":") ? s : s.includes("/") ? `repo:${s}` : `org:${s}`,
+      )
+      .join(" ");
+    const query = `${qualifiers} is:pr ${issueKey} in:title,body`;
     const res = await this.octokit.search.issuesAndPullRequests({
       q: query,
       per_page: 50,

@@ -1,28 +1,21 @@
-import type { JiraIssueSummary } from "../providers/jira.js";
 import type { PullRequestSummary } from "../providers/github.js";
 import type { ResolveResult } from "../resolve/taskToPr.js";
 
-export function formatReport(
-  issue: JiraIssueSummary,
-  result: ResolveResult,
-): string {
+export function formatReport(issueKey: string, result: ResolveResult): string {
   const lines: string[] = [];
-  lines.push(`${issue.key} — ${issue.summary}`);
-  lines.push(`Status: ${issue.status}   Assignee: ${issue.assignee ?? "—"}`);
-  lines.push(issue.url);
+  lines.push(`Ticket: ${issueKey}`);
+  lines.push(`Searched in: ${result.searchedScope.join(", ") || "(empty)"}`);
   lines.push("");
 
   if (result.pullRequests.length === 0) {
-    lines.push("No linked pull requests found.");
-    if (result.searchedRepos.length === 0) {
-      lines.push(
-        "Hint: configure repos via MCP_JIRA_REVIEW_REPOS env or .mcp-jira-review.json to enable GitHub search fallback.",
-      );
-    }
+    lines.push("No matching pull requests found.");
+    lines.push(
+      "Make sure the ticket key appears in the PR title or body, and that the PR lives in an org/repo your token can access.",
+    );
     return lines.join("\n");
   }
 
-  lines.push(`Found ${result.pullRequests.length} PR(s) via ${result.source}:`);
+  lines.push(`Found ${result.pullRequests.length} PR(s):`);
   for (const pr of result.pullRequests) {
     lines.push("");
     const stateLabel =

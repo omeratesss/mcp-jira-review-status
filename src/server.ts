@@ -2,48 +2,39 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { loadConfig } from "./config.js";
-import { JiraClient } from "./providers/jira.js";
 import { GitHubClient } from "./providers/github.js";
 import { resolveTaskPullRequests } from "./resolve/taskToPr.js";
 import { formatReport } from "./mcp/formatReport.js";
 
 export async function runServer(): Promise<void> {
   const config = loadConfig();
-  const jira = new JiraClient({
-    site: config.jiraSite,
-    email: config.jiraEmail,
-    apiToken: config.jiraApiToken,
-  });
   const github = GitHubClient.fromToken(config.githubToken);
 
   const server = new McpServer({
     name: "mcp-jira-review-status",
-    version: "0.2.0",
+    version: "0.3.0",
   });
 
   server.tool(
     "get_review_status",
-    "Report PR review status for a Jira issue: which reviewers must still approve, who already did, and whether the PR is merged.",
-    { issueKey: z.string().describe("Jira issue key, e.g. PROJ-123") },
+    "Report PR review status for a Jira/ticket key: which reviewers must still approve, who already did, and whether the PR is merged. Searches GitHub for PRs whose title or body contains the key.",
+    { issueKey: z.string().describe("Ticket key to search for, e.g. PROJ-123") },
     async ({ issueKey }) => {
-      const issue = await jira.getIssue(issueKey);
       const result = await resolveTaskPullRequests({
-        jira,
         github,
-        issueKey: issue.key,
-        issueId: issue.id,
-        repos: config.repos,
+        issueKey,
+        scopeOverride: config.searchScope.length > 0 ? config.searchScope : undefined,
       });
       return {
         content: [
-          { type: "text", text: formatReport(issue, result) },
+          { type: "text", text: formatReport(issueKey, result) },
           {
             type: "text",
             text: JSON.stringify(
               {
-                issue,
+                issueKey,
                 pullRequests: result.pullRequests,
-                source: result.source,
+                searchedScope: result.searchedScope,
               },
               null,
               2,

@@ -1,6 +1,12 @@
 import prompts from "prompts";
-import { candidateClientTargets, mergeMcpServerConfig } from "./clientConfig.js";
-import { validateGithub, validateJira } from "./validate.js";
+import {
+  candidateClientTargets,
+  claudeDesktopConfigPath,
+  cursorConfigPath,
+  installToClaudeCode,
+  installToJsonConfig,
+} from "./clientConfig.js";
+import { validateGithubAndDetectScope } from "./validate.js";
 
 const SERVER_NAME = "jira-review-status";
 
@@ -10,75 +16,38 @@ function abort(msg: string): never {
 }
 
 async function ask<T extends string>(questions: prompts.PromptObject<T>[]) {
-  const answers = await prompts(questions, {
-    onCancel: () => abort("Setup cancelled."),
-  });
-  return answers;
+  return prompts(questions, { onCancel: () => abort("Setup cancelled.") });
 }
 
 export async function runSetup(): Promise<void> {
   console.log("\nmcp-jira-review-status — setup\n");
   console.log("This wizard will:");
-  console.log("  1. Collect your Jira + GitHub credentials");
-  console.log("  2. Verify they work");
-  console.log("  3. Add the server to your MCP client config\n");
+  console.log("  1. Verify your GitHub token");
+  console.log("  2. Detect which orgs to search in");
+  console.log("  3. Install the server to your MCP client\n");
+  console.log("Create a GitHub token at https://github.com/settings/tokens/new");
+  console.log("Scopes required: `repo` + `read:org`\n");
 
-  const normalizeSite = (input: string) =>
-    input.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
-
-  const creds = await ask<string>([
-    {
-      type: "text",
-      name: "jiraSite",
-      message: "Jira site (e.g. your-org.atlassian.net)",
-      validate: (v: string) => (v.trim().length > 0 ? true : "required"),
-      format: normalizeSite,
-    },
-    {
-      type: "text",
-      name: "jiraEmail",
-      message: "Jira email address",
-      validate: (v: string) => (/.+@.+\..+/.test(v) ? true : "must be an email"),
-    },
-    {
-      type: "password",
-      name: "jiraApiToken",
-      message: "Jira API token (from id.atlassian.com/manage-profile/security/api-tokens)",
-      validate: (v: string) => (v.trim().length > 10 ? true : "looks too short"),
-    },
+  const { githubToken } = await ask<string>([
     {
       type: "password",
       name: "githubToken",
-      message: "GitHub token (scopes: repo, read:org — github.com/settings/tokens/new)",
+      message: "GitHub token",
       validate: (v: string) => (v.trim().length > 10 ? true : "looks too short"),
-    },
-    {
-      type: "text",
-      name: "repos",
-      message: "Fallback repos (comma-separated owner/repo, optional)",
-      initial: "",
     },
   ]);
 
-  console.log("\nVerifying credentials…");
-  const [jiraResult, ghResult] = await Promise.all([
-    validateJira({
-      site: creds.jiraSite,
-      email: creds.jiraEmail,
-      apiToken: creds.jiraApiToken,
-    }),
-    validateGithub(creds.githubToken),
-  ]);
-  console.log(`  ${jiraResult.ok ? "✓" : "✗"} ${jiraResult.message}`);
+  console.log("\nVerifying…");
+  const ghResult = await validateGithubAndDetectScope(githubToken);
   console.log(`  ${ghResult.ok ? "✓" : "✗"} ${ghResult.message}`);
-  if (!jiraResult.ok || !ghResult.ok) {
-    abort("Fix the failing credential(s) and re-run `npx mcp-jira-review-status setup`.");
+  if (!ghResult.ok) {
+    abort("Fix the token and re-run `npx mcp-jira-review-status setup`.");
   }
 
   const targets = candidateClientTargets();
   const choices = targets.map((t) => ({
-    title: `${t.name}${t.exists ? "" : " (file will be created)"}`,
-    description: t.path,
+    title: `${t.name}${t.exists ? "" : " (not detected)"}`,
+    description: t.hint,
     value: t.id,
   }));
 
@@ -92,31 +61,43 @@ export async function runSetup(): Promise<void> {
     },
   ]);
 
-  const target = targets.find((t) => t.id === clientId);
-  if (!target) abort("No target selected.");
-
-  const env: Record<string, string> = {
-    JIRA_SITE: creds.jiraSite,
-    JIRA_EMAIL: creds.jiraEmail,
-    JIRA_API_TOKEN: creds.jiraApiToken,
-    GITHUB_TOKEN: creds.githubToken,
-  };
-  const reposTrimmed = (creds.repos ?? "").trim();
-  if (reposTrimmed) env.MCP_JIRA_REVIEW_REPOS = reposTrimmed;
+  const env: Record<string, string> = { GITHUB_TOKEN: githubToken };
 
   try {
-    const result = mergeMcpServerConfig({
-      path: target!.path,
-      serverName: SERVER_NAME,
-      env,
-    });
-    console.log(`\n✓ Wrote ${result.wrote}`);
-    if (result.backupPath) console.log(`  Backup: ${result.backupPath}`);
-    if (result.replacedExisting) console.log(`  (replaced existing '${SERVER_NAME}' entry)`);
+    if (clientId === "claude-desktop") {
+      const r = installToJsonConfig(claudeDesktopConfigPath(), {
+        serverName: SERVER_NAME,
+        env,
+      });
+      reportJsonInstall(r);
+      console.log("\nRestart Claude Desktop, then ask:");
+    } else if (clientId === "cursor") {
+      const r = installToJsonConfig(cursorConfigPath(), {
+        serverName: SERVER_NAME,
+        env,
+      });
+      reportJsonInstall(r);
+      console.log("\nRestart Cursor, then ask:");
+    } else if (clientId === "claude-code") {
+      const r = installToClaudeCode({ serverName: SERVER_NAME, env });
+      console.log(`\n✓ Installed to ${r.wrote}`);
+      console.log("\nIn Claude Code (terminal), ask:");
+    } else {
+      abort("Unknown client.");
+    }
   } catch (err) {
     abort((err as Error).message);
   }
 
-  console.log(`\nAll set. Restart ${target!.name}, then ask:`);
   console.log(`  "Use ${SERVER_NAME} to check PROJ-123"\n`);
+}
+
+function reportJsonInstall(r: {
+  wrote: string;
+  backupPath: string | null;
+  replacedExisting: boolean;
+}) {
+  console.log(`\n✓ Wrote ${r.wrote}`);
+  if (r.backupPath) console.log(`  Backup: ${r.backupPath}`);
+  if (r.replacedExisting) console.log(`  (replaced existing '${SERVER_NAME}' entry)`);
 }
