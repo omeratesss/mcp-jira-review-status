@@ -1,0 +1,36 @@
+{
+  "name": "mcp-jira-review-status",
+  "version": "0.1.0",
+  "description": "MCP server that reports PR review status for a Jira issue — who must still approve, who already did, and whether the PR is merged.",
+  "keywords": ["mcp", "jira", "github", "pull-request", "code-review", "model-context-protocol"],
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "mcp-jira-review-status": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@octokit/rest": "^21.0.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "msw": "^2.6.6",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
