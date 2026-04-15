@@ -14,65 +14,39 @@ So managers can nudge the right person instead of broadcasting to the team.
 
 ---
 
-## Setup (5 minutes)
+## Quick start (one command)
 
-### Step 1 — Generate an Atlassian API token
-
-1. Go to <https://id.atlassian.com/manage-profile/security/api-tokens>
-2. **Create API token** → name it `mcp-jira-review-status` → **Copy**.
-3. Note your Jira site (e.g. `your-org.atlassian.net`) and the email you use for Jira.
-
-### Step 2 — Generate a GitHub Personal Access Token
-
-1. Go to <https://github.com/settings/tokens/new>
-2. Note: `mcp-jira-review-status`
-3. Scopes: **`repo`** and **`read:org`**
-4. Expiration: whatever you prefer → **Generate token** → **Copy**.
-
-### Step 3 — Add the MCP server to your client
-
-**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
-
-```json
-{
-  "mcpServers": {
-    "jira-review-status": {
-      "command": "npx",
-      "args": ["-y", "mcp-jira-review-status"],
-      "env": {
-        "JIRA_SITE": "your-org.atlassian.net",
-        "JIRA_EMAIL": "you@example.com",
-        "JIRA_API_TOKEN": "paste-atlassian-token",
-        "GITHUB_TOKEN": "ghp_paste-github-token",
-        "MCP_JIRA_REVIEW_REPOS": "your-org/android,your-org/api"
-      }
-    }
-  }
-}
+```sh
+npx -y mcp-jira-review-status setup
 ```
 
-**Cursor** (`~/.cursor/mcp.json`) uses the same block under `mcpServers`.
+You'll be asked for:
 
-`MCP_JIRA_REVIEW_REPOS` is a comma-separated `owner/repo` list. It's only
-used as a **fallback** when Jira's GitHub integration hasn't linked the PR to
-the issue — then the server searches for `is:pr {ISSUE-KEY} in:title,body`
-across these repos.
+1. **Jira site** — e.g. `your-org.atlassian.net`
+2. **Jira email** — the email you sign in to Jira with
+3. **Jira API token** — create one at
+   <https://id.atlassian.com/manage-profile/security/api-tokens>
+4. **GitHub token** — create one at
+   <https://github.com/settings/tokens/new> with scopes **`repo`** and **`read:org`**
+5. **Fallback repos** (optional) — comma-separated `owner/repo` list used
+   only when Jira's GitHub integration hasn't linked the PR to the issue
 
-### Step 4 — Restart the client and try it
+The wizard **verifies both tokens** before writing anything, then installs
+the server into your MCP client's config file (Claude Desktop or Cursor).
+It **backs up** your existing config and **preserves** any other MCP
+servers you already have.
 
-Restart Claude Desktop / Cursor. Then ask:
+Restart your client, then ask:
 
-> "Use jira-review-status to check PROJ-123."
-
-You should see a reviewer breakdown for any linked PRs.
+> "Use jira-review-status to check PROJ-123"
 
 ---
 
-## Tool: `get_review_status`
+## What you get
 
-**Input:** `{ "issueKey": "PROJ-123" }`
+**Tool:** `get_review_status({ issueKey: "PROJ-123" })`
 
-**Output (text):**
+**Output:**
 
 ```
 PROJ-123 — Wire new auth middleware
@@ -92,31 +66,6 @@ A structured JSON copy is returned alongside the text for downstream tools.
 
 ---
 
-## Alternative: config file instead of env
-
-If you prefer not to put tokens in the client config, put them in
-`~/.config/mcp-jira-review/config.json`:
-
-```json
-{
-  "jiraSite": "your-org.atlassian.net",
-  "jiraEmail": "you@example.com",
-  "jiraApiToken": "…",
-  "githubToken": "ghp_…",
-  "repos": ["your-org/app", "your-org/api"]
-}
-```
-
-Per-project repo overrides can live in `./.mcp-jira-review.json`:
-
-```json
-{ "repos": ["your-org/android", "your-org/ios"] }
-```
-
-Precedence: env → workspace file → user config file.
-
----
-
 ## How task → PR resolution works
 
 1. **Primary:** Jira Development panel
@@ -129,6 +78,54 @@ Review status per user follows GitHub's latest-wins semantics: the most
 recent non-dismissed review of type `APPROVED` or `CHANGES_REQUESTED`
 wins; a user who only commented is reported separately; users in
 `requested_reviewers` without any review are `pending`.
+
+---
+
+## Manual installation (advanced)
+
+If you prefer to edit the MCP client config yourself, add this block to
+your `claude_desktop_config.json` (or `~/.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "jira-review-status": {
+      "command": "npx",
+      "args": ["-y", "mcp-jira-review-status"],
+      "env": {
+        "JIRA_SITE": "your-org.atlassian.net",
+        "JIRA_EMAIL": "you@example.com",
+        "JIRA_API_TOKEN": "…",
+        "GITHUB_TOKEN": "ghp_…",
+        "MCP_JIRA_REVIEW_REPOS": "your-org/app,your-org/api"
+      }
+    }
+  }
+}
+```
+
+### Config file alternative
+
+Instead of env in the client config, you can put credentials in
+`~/.config/mcp-jira-review/config.json`:
+
+```json
+{
+  "jiraSite": "your-org.atlassian.net",
+  "jiraEmail": "you@example.com",
+  "jiraApiToken": "…",
+  "githubToken": "ghp_…",
+  "repos": ["your-org/app", "your-org/api"]
+}
+```
+
+Per-project repo overrides: `./.mcp-jira-review.json`:
+
+```json
+{ "repos": ["your-org/android", "your-org/ios"] }
+```
+
+Precedence: env → workspace file → user config file.
 
 ---
 

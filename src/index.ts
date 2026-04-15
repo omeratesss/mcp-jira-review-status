@@ -1,61 +1,29 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
-import { loadConfig } from "./config.js";
-import { JiraClient } from "./providers/jira.js";
-import { GitHubClient } from "./providers/github.js";
-import { resolveTaskPullRequests } from "./resolve/taskToPr.js";
-import { formatReport } from "./mcp/formatReport.js";
+import { runServer } from "./server.js";
 
 async function main() {
-  const config = loadConfig();
-  const jira = new JiraClient({
-    site: config.jiraSite,
-    email: config.jiraEmail,
-    apiToken: config.jiraApiToken,
-  });
-  const github = GitHubClient.fromToken(config.githubToken);
-
-  const server = new McpServer({
-    name: "mcp-jira-review-status",
-    version: "0.1.0",
-  });
-
-  server.tool(
-    "get_review_status",
-    "Report PR review status for a Jira issue: which reviewers must still approve, who already did, and whether the PR is merged.",
-    { issueKey: z.string().describe("Jira issue key, e.g. PROJ-123") },
-    async ({ issueKey }) => {
-      const issue = await jira.getIssue(issueKey);
-      const result = await resolveTaskPullRequests({
-        jira,
-        github,
-        issueKey: issue.key,
-        issueId: issue.id,
-        repos: config.repos,
-      });
-      return {
-        content: [
-          { type: "text", text: formatReport(issue, result) },
-          {
-            type: "text",
-            text: JSON.stringify(
-              {
-                issue,
-                pullRequests: result.pullRequests,
-                source: result.source,
-              },
-              null,
-              2,
-            ),
-          },
-        ],
-      };
-    },
-  );
-
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  const arg = process.argv[2];
+  if (arg === "setup") {
+    const { runSetup } = await import("./cli/setup.js");
+    await runSetup();
+    return;
+  }
+  if (arg === "--help" || arg === "-h" || arg === "help") {
+    process.stdout.write(
+      [
+        "mcp-jira-review-status — report PR review status for a Jira issue",
+        "",
+        "Usage:",
+        "  mcp-jira-review-status          Start the MCP server (stdio). Used by your MCP client.",
+        "  mcp-jira-review-status setup    Interactive setup: prompts for tokens + edits client config.",
+        "  mcp-jira-review-status --help   Show this help.",
+        "",
+        "Docs: https://github.com/omeratesss/mcp-jira-review-status",
+        "",
+      ].join("\n"),
+    );
+    return;
+  }
+  await runServer();
 }
 
 main().catch((err) => {
